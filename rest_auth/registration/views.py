@@ -1,3 +1,5 @@
+from logging import getLogger
+
 from django.conf import settings
 from django.utils.decorators import method_decorator
 from django.utils.translation import ugettext_lazy as _
@@ -15,6 +17,7 @@ from allauth.account.adapter import get_adapter
 from allauth.account.views import ConfirmEmailView
 from allauth.account.utils import complete_signup
 from allauth.account import app_settings as allauth_settings
+from allauth.account.models import EmailAddress
 from allauth.socialaccount import signals
 from allauth.socialaccount.adapter import get_adapter as get_social_adapter
 from allauth.socialaccount.models import SocialAccount
@@ -23,10 +26,13 @@ from rest_auth.app_settings import (TokenSerializer,
                                     JWTSerializer,
                                     create_token)
 from rest_auth.models import TokenModel
-from rest_auth.registration.serializers import (VerifyEmailSerializer,
-                                                SocialLoginSerializer,
-                                                SocialAccountSerializer,
-                                                SocialConnectSerializer)
+from rest_auth.registration.serializers import (
+    VerifyEmailSerializer,
+    SocialLoginSerializer,
+    SocialAccountSerializer,
+    SocialConnectSerializer,
+    ResendConfirmationEmailSerializer,
+)
 from rest_auth.utils import jwt_encode
 from rest_auth.views import LoginView
 from .app_settings import RegisterSerializer, register_permission_classes
@@ -34,6 +40,9 @@ from .app_settings import RegisterSerializer, register_permission_classes
 sensitive_post_parameters_m = method_decorator(
     sensitive_post_parameters('password1', 'password2')
 )
+
+
+LOGGER = getLogger('django.server')
 
 
 class RegisterView(CreateAPIView):
@@ -184,3 +193,25 @@ class SocialAccountDisconnectView(GenericAPIView):
         )
 
         return Response(self.get_serializer(account).data)
+
+
+class ResendConfirmationEmailView(GenericAPIView):
+    serializer_class = ResendConfirmationEmailSerializer
+    permission_classes = (AllowAny,)
+    allowed_methods = ('POST', 'OPTIONS', 'HEAD')
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data.get('email')
+
+        try:
+            email_address = EmailAddress.objects.get(
+                email__exact=email, verified=False)
+            email_address.send_confirmation(self.request, True)
+        except EmailAddress.DoesNotExist:
+            LOGGER.warning(
+                'Verification requested for unknown e-mail: %s', email)
+
+        msg = 'Verification e-mail will be sent if you have already signed up.'
+        return Response({'detail': _(msg)})
