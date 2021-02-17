@@ -206,8 +206,11 @@ class ResendConfirmationEmailView(GenericAPIView):
         email = serializer.validated_data.get('email')
 
         try:
-            email_address = EmailAddress.objects.get(
-                email__exact=email, verified=False)
+            email_address = EmailAddress.objects.get(email__exact=email)
+            if email_address.verified:
+                msg = 'E-mail address already verified.'
+                return Response({'detail': _(msg)},
+                                status=status.HTTP_400_BAD_REQUEST)
             email_address.send_confirmation(self.request, True)
         except EmailAddress.DoesNotExist:
             LOGGER.warning(
